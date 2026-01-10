@@ -138,6 +138,7 @@ let scammerData = [];
 let plusIds = [];
 let proIds = [];
 let currentUserPlan = 'Free';
+let supportedRegions = []; // New: Supported regions list
 
 // OBFX Pro state
 let proAccounts = [];
@@ -427,6 +428,45 @@ async function generateLatestAvatarUrlFallback(username) {
     return constructAvatarUrl('default');
 }
 
+// NEW: Load supported regions from region.txt
+async function loadSupportedRegions() {
+    try {
+        const response = await fetch('region.txt');
+        if (response.ok) {
+            const text = await response.text();
+            supportedRegions = text.split('\n').map(region => region.trim()).filter(region => region.length > 0);
+            console.log('Supported regions loaded:', supportedRegions);
+        }
+    } catch (error) {
+        console.log('No region.txt file found, allowing all regions');
+        supportedRegions = []; // Empty array means all regions allowed
+    }
+}
+
+// NEW: Check if a region/culture is supported
+function isRegionSupported(culture) {
+    if (!culture) return false;
+    if (supportedRegions.length === 0) return true; // If no region file, allow all
+    return supportedRegions.includes(culture);
+}
+
+// NEW: Extract culture from WebSocket data or login response
+function extractCultureFromData(data) {
+    if (data.culture) {
+        return data.culture;
+    }
+    
+    // Try to extract from token
+    try {
+        const tokenData = getUserDataFromToken(data.accessToken);
+        return tokenData?.culture;
+    } catch (error) {
+        console.error('Error extracting culture from token:', error);
+    }
+    
+    return null;
+}
+
 async function loadProIds() {
     try {
         const response = await fetch('obfx_pro.txt');
@@ -584,6 +624,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadPlusIds();
     loadProIds();
     loadProAccounts();
+    loadSupportedRegions(); // NEW: Load supported regions
     
     console.log('Application initialized successfully');
 });
@@ -715,6 +756,13 @@ async function saveProAccount() {
             const result = await response.json();
             
             if (response.ok && result.success) {
+                // NEW: Check region support for account login
+                const culture = result.culture;
+                if (!isRegionSupported(culture)) {
+                    showNotification('This region is not supported.', 'error');
+                    return;
+                }
+                
                 proAccounts.push({
                     type: 'account',
                     username: username,
@@ -747,6 +795,13 @@ async function saveProAccount() {
         const parsed = parseWebSocketData(websocketData);
         if (!parsed) {
             showNotification('Invalid WebSocket data format', 'error');
+            return;
+        }
+        
+        // NEW: Check region support for WebSocket login
+        const culture = extractCultureFromData(parsed);
+        if (!isRegionSupported(culture)) {
+            showNotification('This region is not supported.', 'error');
             return;
         }
         
@@ -1104,48 +1159,83 @@ async function loadAccountFriends(profileId) {
     }
 }
 
+// FIXED: Display account friends with individual label slots - each label gets its own slot
 async function displayAccountFriends(friendsData) {
-    // Take up to 6 friends
-    const friendsToShow = friendsData.slice(0, 6);
+    console.log('Friend data received:', friendsData);
     
-    for (let i = 0; i < friendsToShow.length; i++) {
-        const friend = friendsToShow[i];
+    // Create array of individual label entries instead of unique profiles
+    const labelEntries = [];
+    
+    // Process all friends and create separate entries for each label
+    friendsData.forEach(friend => {
+        const profileId = friend.profileId;
+        
+        if (friend.labels && friend.labels.length > 0) {
+            friend.labels.forEach(label => {
+                labelEntries.push({
+                    profileId: profileId,
+                    label: label
+                });
+            });
+        }
+    });
+    
+    console.log('Label entries to display:', labelEntries);
+    
+    // Take up to 6 label entries (each label gets its own slot)
+    const displayEntries = labelEntries.slice(0, 6);
+    
+    // Fill all 6 slots
+    for (let i = 0; i < 6; i++) {
         const slotElement = document.getElementById(`friendSlot${i}`);
         
         if (slotElement) {
-            // Get friend avatar - ENHANCED WITH OLD PROFILE ID SUPPORT
-            const avatarUrl = await getLatestAvatarByProfileId(friend.profileId);
-            
-            // Determine label type
-            let labelIcon = '';
-            let labelClass = '';
-            if (friend.labels && friend.labels.length > 0) {
-                const label = friend.labels[0];
-                if (label.labelResourceIdentifier === 'bestFriends') {
+            if (i < displayEntries.length) {
+                const entry = displayEntries[i];
+                
+                // Get friend avatar - ENHANCED WITH OLD PROFILE ID SUPPORT
+                const avatarUrl = await getLatestAvatarByProfileId(entry.profileId);
+                
+                // Process label
+                let labelIcon = '';
+                let labelClass = '';
+                let date = '';
+                
+                if (entry.label.labelResourceIdentifier === 'bestFriends') {
                     labelIcon = '⭐';
                     labelClass = 'best-friend';
-                } else if (label.labelResourceIdentifier === 'sweetHearts') {
+                    date = formatTurkishDate(entry.label.created);
+                } else if (entry.label.labelResourceIdentifier === 'sweetHearts') {
                     labelIcon = '💕';
                     labelClass = 'sweet-heart';
+                    date = formatTurkishDate(entry.label.created);
                 }
                 
-                // Format date
-                const dateStr = formatTurkishDate(label.created);
+                // Create slot content
+                let slotContent = `<img src="${avatarUrl}" alt="Friend" class="friend-avatar">`;
                 
-                slotElement.innerHTML = `
-                    <img src="${avatarUrl}" alt="Friend" class="friend-avatar">
-                    <div class="friend-label ${labelClass}">${labelIcon}</div>
-                    <div class="friend-date">${dateStr}</div>
-                `;
+                // Add relationship icon for this specific label
+                if (labelIcon) {
+                    slotContent += `<div class="friend-label ${labelClass}">${labelIcon}</div>`;
+                    slotContent += `<div class="friend-date">${date}</div>`;
+                }
+                
+                slotElement.innerHTML = slotContent;
                 slotElement.classList.remove('empty');
                 slotElement.classList.add('filled');
+                
+                console.log(`Filled slot ${i} with entry:`, entry.profileId, 'Label:', labelIcon, 'Date:', date);
             } else {
-                slotElement.innerHTML = `<img src="${avatarUrl}" alt="Friend" class="friend-avatar">`;
-                slotElement.classList.remove('empty');
-                slotElement.classList.add('filled');
+                // Slot is empty
+                slotElement.innerHTML = '';
+                slotElement.classList.remove('filled');
+                slotElement.classList.add('empty');
+                console.log(`Slot ${i} is empty`);
             }
         }
     }
+    
+    console.log(`All 6 friend slots processed. Displayed ${displayEntries.length} label entries.`);
 }
 
 async function loadAccountDetails(profileId) {
@@ -1158,7 +1248,7 @@ async function loadAccountDetails(profileId) {
                 'Content-Type': 'application/json'
             }
         });
-        
+
         if (response.ok) {
             const profileDetails = await response.json();
             // FIX: The response is a single object, not an array
@@ -2590,6 +2680,13 @@ function showRegionDialog() {
         return;
     }
 
+    // NEW: Check region support before showing region dialog
+    const culture = extractCultureFromData(parsed);
+    if (!isRegionSupported(culture)) {
+        showNotification('This region is not supported.', 'error');
+        return;
+    }
+
     window.tempProfileData = parsed;
     document.getElementById('regionDialog').style.display = 'flex';
 }
@@ -2663,6 +2760,14 @@ async function handleAccountLogin() {
         const result = await response.json();
         
         if (response.ok && result.success) {
+            // NEW: Check region support for account login
+            if (!isRegionSupported(result.culture)) {
+                hideAllScreens();
+                document.getElementById('loginScreen').style.display = 'flex';
+                showNotification('This region is not supported.', 'error');
+                return;
+            }
+            
             // Check if user is banned
             if (bannedIds.includes(result.profileId)) {
                 showBannedScreen();
@@ -5005,7 +5110,8 @@ function parseWebSocketData(input) {
             if (data.profileId && data.accessToken) {
                 return {
                     profileId: data.profileId,
-                    accessToken: data.accessToken
+                    accessToken: data.accessToken,
+                    culture: data.culture // NEW: Include culture for region checking
                 };
             }
         }
