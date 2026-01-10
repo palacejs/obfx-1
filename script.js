@@ -110,7 +110,7 @@ const MOOD_LIST = [
     "cinna_2025_rainshield_dg",
     "bigcity_2025_stomping_lsz",
     "xmas_2025_crazyskiing_ls",
-    "summer_2025_cabinbag_lsz",
+    "summer_2025_cabinag_lsz",
     "easter_2025_rabbitjump_dg"
 ];
 
@@ -1159,11 +1159,11 @@ async function loadAccountFriends(profileId) {
     }
 }
 
-// FIXED: Display account friends with individual label slots - each label gets its own slot
+// FIXED: Display account friends with multiple labels support - each label gets its own slot
 async function displayAccountFriends(friendsData) {
     console.log('Friend data received:', friendsData);
     
-    // Create array of individual label entries instead of unique profiles
+    // Create an array to store individual label entries
     const labelEntries = [];
     
     // Process all friends and create separate entries for each label
@@ -1174,16 +1174,17 @@ async function displayAccountFriends(friendsData) {
             friend.labels.forEach(label => {
                 labelEntries.push({
                     profileId: profileId,
-                    label: label
+                    labelResourceIdentifier: label.labelResourceIdentifier,
+                    gameId: label.gameId,
+                    created: label.created
                 });
             });
         }
     });
     
-    console.log('Label entries to display:', labelEntries);
-    
-    // Take up to 6 label entries (each label gets its own slot)
+    // Take up to 6 label entries (not unique profiles, but unique label instances)
     const displayEntries = labelEntries.slice(0, 6);
+    console.log('Label entries to display:', displayEntries);
     
     // Fill all 6 slots
     for (let i = 0; i < 6; i++) {
@@ -1196,35 +1197,35 @@ async function displayAccountFriends(friendsData) {
                 // Get friend avatar - ENHANCED WITH OLD PROFILE ID SUPPORT
                 const avatarUrl = await getLatestAvatarByProfileId(entry.profileId);
                 
-                // Process label
+                // Process the label
                 let labelIcon = '';
                 let labelClass = '';
-                let date = '';
                 
-                if (entry.label.labelResourceIdentifier === 'bestFriends') {
+                if (entry.labelResourceIdentifier === 'bestFriends') {
                     labelIcon = '⭐';
                     labelClass = 'best-friend';
-                    date = formatTurkishDate(entry.label.created);
-                } else if (entry.label.labelResourceIdentifier === 'sweetHearts') {
+                } else if (entry.labelResourceIdentifier === 'sweetHearts') {
                     labelIcon = '💕';
                     labelClass = 'sweet-heart';
-                    date = formatTurkishDate(entry.label.created);
                 }
+                
+                // Format date
+                const formattedDate = formatTurkishDate(entry.created);
                 
                 // Create slot content
                 let slotContent = `<img src="${avatarUrl}" alt="Friend" class="friend-avatar">`;
                 
-                // Add relationship icon for this specific label
+                // Add relationship icon
                 if (labelIcon) {
                     slotContent += `<div class="friend-label ${labelClass}">${labelIcon}</div>`;
-                    slotContent += `<div class="friend-date">${date}</div>`;
+                    slotContent += `<div class="friend-date">${formattedDate}</div>`;
                 }
                 
                 slotElement.innerHTML = slotContent;
                 slotElement.classList.remove('empty');
                 slotElement.classList.add('filled');
                 
-                console.log(`Filled slot ${i} with entry:`, entry.profileId, 'Label:', labelIcon, 'Date:', date);
+                console.log(`Filled slot ${i} with entry:`, entry.profileId, 'Label:', entry.labelResourceIdentifier, 'Date:', formattedDate);
             } else {
                 // Slot is empty
                 slotElement.innerHTML = '';
@@ -1235,7 +1236,7 @@ async function displayAccountFriends(friendsData) {
         }
     }
     
-    console.log(`All 6 friend slots processed. Displayed ${displayEntries.length} label entries.`);
+    console.log('All 6 friend slots processed');
 }
 
 async function loadAccountDetails(profileId) {
@@ -1250,10 +1251,10 @@ async function loadAccountDetails(profileId) {
         });
 
         if (response.ok) {
-            const profileDetails = await response.json();
+            const data = await response.json();
             // FIX: The response is a single object, not an array
-            if (profileDetails) {
-                displayAccountDetails(profileDetails);
+            if (data) {
+                displayAccountDetails(data);
             }
         }
     } catch (error) {
